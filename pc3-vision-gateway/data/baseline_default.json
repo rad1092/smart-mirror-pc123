@@ -1,0 +1,34 @@
+{
+  "user_id": "default",
+  "exercise": {
+    "squat": {
+      "avg_count": 15,
+      "avg_stability_score": 0.82,
+      "common_errors": ["knees_caving_in"]
+    },
+    "jumping_jack": {
+      "avg_count": 30,
+      "avg_stability_score": 0.78,
+      "common_errors": ["uneven_tempo"]
+    },
+    "knee_raise": {
+      "avg_count": 20,
+      "avg_stability_score": 0.76,
+      "common_errors": ["low_knee_height"]
+    },
+    "lunge": {
+      "avg_count": 12,
+      "avg_stability_score": 0.74,
+      "common_errors": ["front_knee_drift"]
+    },
+    "pushup": {
+      "avg_count": 10,
+      "avg_stability_score": 0.76,
+      "common_errors": ["partial_range"]
+    }
+  },
+  "body": {},
+  "environment": {
+    "baseline_illuminance": 360
+  }
+}

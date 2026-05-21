@@ -1,0 +1,144 @@
+.result-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(57, 255, 20, 0.12), transparent 34%),
+    var(--bg);
+  padding: 2rem;
+}
+
+.result-card {
+  width: min(760px, 94vw);
+  max-height: 90vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 2.5rem;
+}
+
+.result-title {
+  font-size: clamp(2rem, 7vmin, 4rem);
+  font-weight: 800;
+  color: var(--accent);
+  text-shadow: 0 0 12px var(--accent);
+  text-align: center;
+  letter-spacing: 0.04em;
+}
+
+.result-divider {
+  height: 1px;
+  background: var(--card-border);
+}
+
+.coach-message {
+  font-size: clamp(1.1rem, 2.8vmin, 1.5rem);
+  color: var(--text);
+  text-align: center;
+  line-height: 1.6;
+  min-height: 2rem;
+}
+
+.result-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  flex: 1;
+  min-width: 120px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem;
+}
+
+.summary-item.full {
+  flex-basis: 100%;
+}
+
+.summary-label {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.summary-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.warnings {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.warning-item {
+  padding: 0.4rem 0.8rem;
+  background: var(--error-dim);
+  border: 1px solid rgba(255, 61, 61, 0.25);
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  color: var(--error);
+}
+
+.section-title {
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.coach-lines,
+.result-evidence {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.8rem;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.coach-lines ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: var(--text);
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.result-evidence p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.result-evidence strong {
+  display: block;
+  color: var(--text);
+  font-weight: 650;
+}
+
+.result-evidence span {
+  display: block;
+  margin-top: 0.15rem;
+}
+
+.result-actions {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 0.5rem;
+}

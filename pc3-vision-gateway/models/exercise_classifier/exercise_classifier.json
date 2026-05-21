@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "type": "landmark_rule_classifier",
+  "classes": ["squat", "pushup", "lunge", "knee_raise", "jumping_jack"],
+  "window_size": 5,
+  "thresholds": {
+    "pushup_min_body_aspect": 1.25,
+    "pushup_bent_elbow_angle": 135,
+    "jumping_jack_open_feet_ratio": 1.45,
+    "knee_raise_min_height": 0.08,
+    "lunge_max_front_knee_angle": 120,
+    "standing_max_body_aspect": 1.15
+  }
+}

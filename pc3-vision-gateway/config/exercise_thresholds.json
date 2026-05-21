@@ -1,0 +1,67 @@
+{
+  "squat": {
+    "enabled": true,
+    "down_knee_angle": 120,
+    "up_knee_angle": 160,
+    "min_body_height": 0.16,
+    "min_confident_landmark_ratio": 0.45,
+    "partial_body_margin": 0.01,
+    "min_landmark_visibility": 0.35,
+    "min_landmark_confidence": 0.35,
+    "stability_warning_threshold": 0.65,
+    "knees_caving_in": 0.12,
+    "posture_error_thresholds": {
+      "knees_caving_in": 0.12,
+      "back_leaning_forward_degrees": 25
+    }
+  },
+  "pushup": {
+    "enabled": true,
+    "down_elbow_angle": 115,
+    "up_elbow_angle": 145,
+    "body_line_min_angle": 150,
+    "min_body_height": 0.1,
+    "min_confident_landmark_ratio": 0.45,
+    "partial_body_margin": 0.01,
+    "min_landmark_visibility": 0.35,
+    "stability_warning_threshold": 0.65
+  },
+  "lunge": {
+    "enabled": true,
+    "down_knee_angle": 120,
+    "up_knee_angle": 155,
+    "min_body_height": 0.16,
+    "min_confident_landmark_ratio": 0.45,
+    "partial_body_margin": 0.01,
+    "min_landmark_visibility": 0.35,
+    "stability_warning_threshold": 0.65,
+    "posture_error_thresholds": {
+      "knees_caving_in": 0.14,
+      "back_leaning_forward_degrees": 28
+    }
+  },
+  "knee_raise": {
+    "enabled": true,
+    "raised_knee_min_height": 0.07,
+    "reset_knee_max_height": 0.025,
+    "max_count_imbalance": 3,
+    "min_body_height": 0.16,
+    "min_confident_landmark_ratio": 0.45,
+    "partial_body_margin": 0.01,
+    "min_landmark_visibility": 0.35,
+    "stability_warning_threshold": 0.65
+  },
+  "jumping_jack": {
+    "enabled": true,
+    "open_feet_width_ratio": 1.12,
+    "closed_feet_width_ratio": 1.08,
+    "arm_raise_margin": -0.05,
+    "arm_down_margin": 0.0,
+    "min_raised_arm_sides": 1,
+    "min_body_height": 0.16,
+    "min_confident_landmark_ratio": 0.45,
+    "partial_body_margin": 0.01,
+    "min_landmark_visibility": 0.35,
+    "stability_warning_threshold": 0.65
+  }
+}

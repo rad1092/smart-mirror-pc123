@@ -1,0 +1,103 @@
+{
+  "exercises": {
+    "squat": {
+      "enabled": true,
+      "landmarks": [
+        "left_hip",
+        "left_knee",
+        "left_ankle",
+        "right_hip",
+        "right_knee",
+        "right_ankle",
+        "left_shoulder",
+        "right_shoulder"
+      ],
+      "state_thresholds": {
+        "down_knee_angle": 120,
+        "up_knee_angle": 160
+      },
+      "posture_rules": {
+        "knees_caving_in": {
+          "description": "무릎이 안쪽으로 모이는 패턴",
+          "threshold": 0.12
+        },
+        "back_leaning_forward": {
+          "description": "상체가 과하게 앞으로 기울어진 패턴",
+          "threshold_degrees": 25
+        }
+      }
+    },
+    "pushup": {
+      "enabled": true,
+      "landmarks": ["shoulder", "elbow", "wrist", "hip", "ankle"],
+      "state_thresholds": {
+        "down_elbow_angle": 115,
+        "up_elbow_angle": 145
+      },
+      "posture_rules": {
+        "hip_sagging": {
+          "description": "엉덩이가 아래로 처지는 패턴",
+          "threshold_degrees": 160
+        },
+        "partial_range": {
+          "description": "팔꿈치 가동 범위가 부족한 패턴"
+        }
+      }
+    },
+    "lunge": {
+      "enabled": true,
+      "landmarks": ["shoulder", "hip", "knee", "ankle"],
+      "state_thresholds": {
+        "down_knee_angle": 120,
+        "up_knee_angle": 155
+      },
+      "posture_rules": {
+        "short_lunge_depth": {
+          "description": "런지 하강 깊이가 부족한 패턴"
+        },
+        "back_leaning_forward": {
+          "description": "상체가 과하게 앞으로 기울어진 패턴",
+          "threshold_degrees": 28
+        }
+      }
+    },
+    "knee_raise": {
+      "enabled": true,
+      "landmarks": ["shoulder", "hip", "knee", "ankle"],
+      "state_thresholds": {
+        "raised_knee_min_height": 0.07,
+        "reset_knee_max_height": 0.025
+      },
+      "posture_rules": {
+        "low_knee_raise": {
+          "description": "무릎이 충분히 올라오지 않은 패턴"
+        },
+        "uneven_knee_raise": {
+          "description": "좌우 반복 횟수 균형이 크게 어긋난 패턴"
+        }
+      }
+    },
+    "jumping_jack": {
+      "enabled": true,
+      "landmarks": ["shoulder", "wrist", "hip", "ankle"],
+      "state_thresholds": {
+        "open_feet_width_ratio": 1.12,
+        "closed_feet_width_ratio": 1.08,
+        "arm_raise_margin": -0.05,
+        "arm_down_margin": 0.0,
+        "min_raised_arm_sides": 1
+      },
+      "posture_rules": {
+        "arms_not_overhead": {
+          "description": "팔이 머리 위까지 올라오지 않은 패턴"
+        },
+        "feet_not_wide_enough": {
+          "description": "발이 충분히 벌어지지 않은 패턴"
+        },
+        "unsynced_jumping_jack": {
+          "description": "팔과 다리 타이밍이 맞지 않는 패턴"
+        }
+      }
+    }
+  }
+}
