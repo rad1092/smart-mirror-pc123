@@ -1,572 +1,476 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useApp } from '../context/AppContext';
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { NavigateFunction } from "react-router-dom";
+
+import AppShell from "../components/AppShell";
 import {
+  generateRoutine,
   getBaselineStatus,
-  getCoachLogs,
-  getProgress,
-  getRoutine,
   getRoutineCalendar,
   getRoutineDay,
-  saveBodyMetric,
-} from '../services/api';
-import type {
-  BaselineStatus,
-  CalendarDay,
-  CalendarResponse,
-  CoachLog,
-  EvidenceItem,
-  ProgressResponse,
-  RoutineDayResponse,
-  RoutineItem,
-  RoutineResponse,
-  SessionStopResponse,
-  WeeklyAdjustment,
-  WeeklyRoutineExercise,
-} from '../services/api';
-import './ModePage.css';
+  profileNeedsBaseline,
+  routineFromDay,
+} from "../services/api";
+import { dayNotePreview, readDayNotes } from "../services/dayNotes";
+import { useAppState } from "../state/AppContext";
+import type { RoutineCalendar, RoutineCalendarDay, RoutineDay, WeeklyRoutineExercise } from "../types/domain";
+import {
+  EXERCISE_LABELS,
+  formatExerciseTarget,
+  friendlyError,
+  monthEndIso,
+  monthStartIso,
+  shortDate,
+  todayIso,
+} from "../utils/format";
 
-const EXERCISE_KO: Record<string, string> = {
-  squat: '스쿼트',
-  jumping_jack: '점핑잭',
-  knee_raise: '니 레이즈',
-  lunge: '런지',
-  pushup: '푸시업',
+type RoutineReasonCard = {
+  label: string;
+  title: string;
+  body: string;
 };
 
-function exKo(type: string) {
-  return EXERCISE_KO[type] ?? type;
+const TEXT_LIMITS = {
+  calendar: 10,
+  title: 22,
+  reasonTitle: 18,
+  reasonBody: 42,
+};
+
+const ROUTINE_TEXT_REPLACEMENTS: Array<[RegExp, string]> = [
+  [/\bsquat\b/gi, "스쿼트"],
+  [/\bknee[_\s-]?raise\b/gi, "니 레이즈"],
+  [/\bjumping[_\s-]?jack\b/gi, "점핑잭"],
+  [/\blunge\b/gi, "런지"],
+  [/\bpush[_\s-]?up\b/gi, "푸시업"],
+  [/\bposture\b/gi, "자세"],
+  [/\bbalance\b/gi, "균형"],
+  [/\bstability\b/gi, "안정성"],
+  [/\brhythm\b/gi, "리듬"],
+  [/\bstrength\b/gi, "근력"],
+  [/\bcardio\b/gi, "심폐"],
+  [/\bmobility\b/gi, "가동성"],
+  [/\bform[_\s-]?basics\b/gi, "기본 자세"],
+  [/\bcommon[_\s-]?error(s)?\b/gi, "흔한 실수"],
+  [/\bprogression\b/gi, "강도 조절"],
+];
+
+const ROUTINE_WARNING_TEXT = /(중단|멈추|통증|어지러움|불편|지원|받으세요|위험|응급)/;
+
+function polishRoutineText(value: unknown): string {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  let text = value.trim();
+  if (!text || ROUTINE_WARNING_TEXT.test(text)) {
+    return "";
+  }
+
+  for (const [pattern, replacement] of ROUTINE_TEXT_REPLACEMENTS) {
+    text = text.replace(pattern, replacement);
+  }
+
+  return text.replace(/[_]+/g, " ").replace(/\s{2,}/g, " ").trim();
 }
 
-function localDateString(date: Date) {
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
-  return local.toISOString().slice(0, 10);
+function chooseRoutineText(...values: unknown[]): string {
+  for (const value of values) {
+    const text = polishRoutineText(value);
+    if (text) {
+      return text;
+    }
+  }
+  return "";
 }
 
-function offsetDate(isoDate: string, days: number) {
-  const date = new Date(`${isoDate}T00:00:00`);
-  date.setDate(date.getDate() + days);
-  return localDateString(date);
+function clampText(text: string, maxLength: number): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= maxLength) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, Math.max(0, maxLength - 1)).trim()}…`;
 }
 
-function baselineComplete(status: BaselineStatus | null) {
-  const baseline = status?.baseline as Record<string, Record<string, { captured?: boolean }> | undefined> | undefined;
-  const face = baseline?.face?.face_front;
-  const body = baseline?.body?.body_front_full;
-  return status?.source === 'user' && Boolean(face?.captured && body?.captured);
+function compactExerciseNames(exercises: WeeklyRoutineExercise[], maxLength = TEXT_LIMITS.calendar): string {
+  const labels = Array.from(new Set(exercises.map((exercise) => EXERCISE_LABELS[exercise.exercise]).filter(Boolean)));
+  if (labels.length === 0) {
+    return "";
+  }
+  if (labels.length === 1) {
+    return clampText(labels[0], maxLength);
+  }
+  if (labels.length === 2) {
+    return clampText(`${labels[0]}와 ${labels[1]}`, maxLength);
+  }
+  return clampText(`${labels[0]} 외 ${labels.length - 1}개`, maxLength);
 }
 
-function estimateMinutes(exercises: WeeklyRoutineExercise[]) {
-  const seconds = exercises.reduce((sum, item) => {
-    const work = item.duration_sec ?? ((item.reps ?? 10) * 3);
-    const rest = item.rest_sec ?? 45;
-    return sum + (item.sets ?? 1) * (work + rest);
-  }, 0);
-  return Math.max(1, Math.round(seconds / 60));
+function compactTextFromFocus(value: unknown, maxLength = TEXT_LIMITS.calendar): string {
+  const source = polishRoutineText(value);
+  if (!source) {
+    return "";
+  }
+  const labels = Object.values(EXERCISE_LABELS).filter((label) => source.includes(label));
+  if (labels.length) {
+    return clampText(labels.length === 1 ? labels[0] : `${labels[0]}와 ${labels[1]}`, maxLength);
+  }
+  const cleaned = source
+    .replace(/의\s*기본\s*자세\s*익히기/g, "")
+    .replace(/기본\s*자세\s*익히기/g, "")
+    .replace(/리듬과\s*자세\s*유지/g, "")
+    .replace(/자세\s*안정성/g, "")
+    .trim();
+  return cleaned ? clampText(cleaned, maxLength) : "";
 }
 
-function routineItemsFromExercises(exercises: WeeklyRoutineExercise[]): RoutineItem[] {
-  return exercises.map((item) => ({
-    exercise_type: item.exercise,
-    title: exKo(item.exercise),
-    reps: item.reps ?? null,
-    sets: item.sets ?? 1,
-    rest_sec: item.rest_sec ?? 45,
-    focus: item.focus,
-    summary: item.reason ?? '',
-    reason: item.reason ?? '',
-    how_to: item.how_to ?? '',
-    tips: item.tips ?? '',
-    duration_sec: item.duration_sec ?? null,
+function selectedRoutineTitle(day: RoutineDay | null): string {
+  if (!day) {
+    return "선택 날짜 루틴 없음";
+  }
+  const dayIndex = day.dayIndex > 0 ? day.dayIndex : 1;
+  const exerciseLabel = compactExerciseNames(day.exercises, 14) || compactTextFromFocus(day.focus, 14) || "오늘 루틴";
+  return clampText(`${dayIndex}일차 - ${exerciseLabel}`, TEXT_LIMITS.title);
+}
+
+function buildRoutineReasonCards(day: RoutineDay | null, estimatedMinutes?: number | null, searching = false): RoutineReasonCard[] {
+  if (!day) {
+    return [
+      {
+        label: searching ? "확인 중" : "대기",
+        title: searching ? "루틴 찾는 중" : "루틴 없음",
+        body: searching ? "오늘 루틴을 확인하고 있습니다." : "달력에 루틴이 배정되면 여기에 표시됩니다.",
+      },
+      {
+        label: "운동 준비",
+        title: "오늘 루틴 확인 후 시작",
+        body: "오늘 날짜에 루틴이 확인되면 운동 시작 버튼이 활성화됩니다.",
+      },
+    ];
+  }
+
+  const firstExercise = day.exercises[0] ?? null;
+  const firstExerciseName = firstExercise ? EXERCISE_LABELS[firstExercise.exercise] : "첫 운동";
+  const totalSets = day.exercises.reduce((sum, exercise) => sum + (exercise.sets ?? 1), 0);
+  const firstTarget = firstExercise ? formatExerciseTarget(firstExercise.reps, firstExercise.durationSec) : "";
+  const firstRest = firstExercise?.restSec ? `휴식 ${firstExercise.restSec}초` : "";
+  const estimatedText = estimatedMinutes && estimatedMinutes > 0 ? `약 ${estimatedMinutes}분` : "짧게 시작";
+  const intensityDetail = [firstTarget, firstRest].filter(Boolean).join(" · ");
+
+  const cards = [
+    {
+      label: "오늘의 목적",
+      title: chooseRoutineText(day.focus, day.weeklyFocus, day.message) || "오늘 루틴의 목표를 확인해요",
+      body: chooseRoutineText(day.summary, day.weeklyFocus) || "AI가 달력에 배정한 루틴을 기준으로 오늘 할 운동을 정리했어요.",
+    },
+    {
+      label: "운동 포인트",
+      title: chooseRoutineText(firstExercise?.focus, firstExercise?.reason, day.focus) || `${firstExerciseName}를 천천히 시작해요`,
+      body: chooseRoutineText(firstExercise?.howTo, firstExercise?.tips, firstExercise?.reason) || `${firstExerciseName}는 화면을 보며 정확한 자세와 리듬을 먼저 맞추면 좋아요.`,
+    },
+    {
+      label: "진행 강도",
+      title: day.exercises.length > 0 ? `${day.exercises.length}개 동작 · ${estimatedText}` : "운동 강도 확인 중",
+      body:
+        day.exercises.length > 0
+          ? `${totalSets}세트 구성입니다.${intensityDetail ? ` 첫 동작은 ${intensityDetail}로 시작해요.` : " 오늘은 무리하지 않고 정확도를 먼저 보는 구성이에요."}`
+          : "루틴이 준비되면 운동 개수와 예상 시간이 표시됩니다.",
+    },
+  ];
+
+  return cards.map((card) => ({
+    ...card,
+    title: clampText(card.title, TEXT_LIMITS.reasonTitle),
+    body: clampText(card.body, TEXT_LIMITS.reasonBody),
   }));
 }
 
-function routineFromDay(day: RoutineDayResponse): RoutineResponse {
-  const items = routineItemsFromExercises(day.exercises);
-  return {
-    source: 'ai',
-    difficulty: 'normal',
-    title: day.message || day.focus || '오늘 루틴',
-    description: day.summary || day.weekly_focus || '',
-    reason_lines: [day.weekly_focus, day.focus].filter(Boolean),
-    estimated_minutes: estimateMinutes(day.exercises),
-    start_exercise_type: items[0]?.exercise_type ?? 'squat',
-    items,
-    routine_id: day.routine_id,
-    routine_day_id: day.routine_day_id,
-    scheduled_dates: [day.scheduled_date],
-    weekly_routine: [
-      {
-        day_index: day.day_index,
-        day_label: day.day_label,
-        focus: day.focus,
-        exercises: day.exercises,
-      },
-    ],
-  };
-}
-
-function evidenceFromProgress(progress: ProgressResponse | null, routine: RoutineResponse | null): EvidenceItem[] {
-  const direct = routine?.evidence ?? routine?.pc3_payload?.evidence;
-  if (direct?.length) return direct;
-  const latest = progress?.latest_routine?.routine_response;
-  return latest?.pc3_payload?.evidence ?? latest?.evidence ?? [];
-}
-
-function historyFromProgress(progress: ProgressResponse | null, routine: RoutineResponse | null) {
-  const direct = routine?.history_summary ?? routine?.pc3_payload?.history_summary;
-  if (direct && Object.keys(direct).length > 0) return direct;
-  const latest = progress?.latest_routine?.routine_response;
-  return latest?.pc3_payload?.history_summary ?? latest?.history_summary ?? {};
-}
-
-function adjustmentFromProgress(progress: ProgressResponse | null, routine: RoutineResponse | null): WeeklyAdjustment | null {
-  const direct = routine?.weekly_adjustment ?? routine?.pc3_payload?.weekly_adjustment;
-  if (direct) return direct;
-  const latest = progress?.latest_routine?.routine_response;
-  return latest?.pc3_payload?.weekly_adjustment ?? latest?.weekly_adjustment ?? null;
-}
-
-function coachingEvidence(logs: CoachLog[], lastResult: SessionStopResponse | null): EvidenceItem[] {
-  const fromLast = lastResult?.coaching.pc2_payload?.evidence;
-  if (fromLast?.length) return fromLast;
-  for (const log of logs) {
-    const evidence = log.final_response?.pc2_payload?.evidence;
-    if (evidence?.length) return evidence;
-  }
-  return [];
-}
-
-function coachingLines(log: CoachLog) {
-  return log.final_response?.pc2_payload?.display_lines ?? [];
-}
-
-function coachingTitle(log: CoachLog) {
-  return (
-    log.final_response?.summary
-    || log.final_response?.mirror_message
-    || String(log.pc2_output?.summary ?? log.purpose ?? '코칭 기록')
-  );
-}
-
-function formatEvidence(item: EvidenceItem) {
-  const title = item.title || item.source_title || item.summary || item.text || '근거';
-  const meta = [item.exercise, item.category].filter(Boolean).join(' · ');
-  return { title, meta };
-}
-
-function formatWeightDelta(delta: number | null) {
-  if (delta == null) return '기록 부족';
-  if (delta > 0) return `+${delta.toFixed(1)}kg`;
-  return `${delta.toFixed(1)}kg`;
-}
-
-function formatDuration(seconds?: number) {
-  if (!seconds) return '0분';
-  return `${Math.round(seconds / 60)}분`;
-}
-
-function workoutCountText(day: CalendarDay) {
-  const isSkipped = (item: Record<string, unknown>) => {
-    const result = item.result && typeof item.result === 'object' ? item.result as Record<string, unknown> : {};
-    return item.status === 'skipped' || result.status === 'skipped';
-  };
-  const completed = day.workout_results.filter((item) => !isSkipped(item)).length;
-  const skipped = day.skipped_count ?? day.workout_results.filter((item) => isSkipped(item)).length;
-  const parts = [];
-  if (completed) parts.push(`${completed}개 완료`);
-  if (skipped) parts.push(`${skipped}개 스킵`);
-  return parts.join(' · ');
-}
-
-function adjustmentLabel(adjustment: WeeklyAdjustment) {
-  const percent = Number(adjustment.volume_change_percent || 0);
-  if (adjustment.direction === 'increase') return `이번 주 조절: ${percent}% 증가`;
-  if (adjustment.direction === 'decrease') return `이번 주 조절: ${Math.abs(percent)}% 감소`;
-  if (adjustment.direction === 'hold_or_decrease') return '이번 주 조절: 강도 증가 보류';
-  return '이번 주 조절: 유지';
-}
-
-export default function ModePage() {
-  const navigate = useNavigate();
-  const {
-    activeProfile,
-    routine,
-    lastResult,
-    setBaselineReady,
-    setRoutine,
-    setCurrentExerciseIndex,
-  } = useApp();
-
-  const today = useMemo(() => localDateString(new Date()), []);
-  const [baseline, setBaseline] = useState<BaselineStatus | null>(null);
-  const [calendar, setCalendar] = useState<CalendarResponse | null>(null);
-  const [todayRoutine, setTodayRoutine] = useState<RoutineDayResponse | null>(null);
-  const [progress, setProgress] = useState<ProgressResponse | null>(null);
-  const [coachLogs, setCoachLogs] = useState<CoachLog[]>([]);
+export default function ModePage({ navigate }: { navigate: NavigateFunction }) {
+  const app = useAppState();
+  const profile = app.activeProfile;
+  const today = useMemo(todayIso, []);
+  const [calendar, setCalendar] = useState<RoutineCalendar | null>(null);
+  const [selectedDate, setSelectedDate] = useState(today);
+  const [todayDay, setTodayDay] = useState<RoutineDay | null>(null);
+  const [selectedDayDetail, setSelectedDayDetail] = useState<RoutineDay | null>(null);
+  const [calendarExerciseLabels, setCalendarExerciseLabels] = useState<Record<string, string>>({});
+  const [calendarNotes, setCalendarNotes] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
+  const [selectedDayLoading, setSelectedDayLoading] = useState(false);
   const [routineLoading, setRoutineLoading] = useState(false);
-  const [weightSaving, setWeightSaving] = useState(false);
-  const [weightInput, setWeightInput] = useState('');
-  const [weightMemo, setWeightMemo] = useState('');
-  const [error, setError] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
-  const fromDate = useMemo(() => offsetDate(today, -30), [today]);
-  const toDate = useMemo(() => offsetDate(today, 14), [today]);
-  const canUseRoutine = baselineComplete(baseline);
-  const hasProfileDetails = Boolean(activeProfile && activeProfile.weight_kg > 0 && activeProfile.height_cm > 0);
-  const routineEvidence = evidenceFromProgress(progress, routine);
-  const historySummary = historyFromProgress(progress, routine);
-  const weeklyAdjustment = adjustmentFromProgress(progress, routine);
-  const latestCoachingEvidence = coachingEvidence(coachLogs, lastResult);
+  const calendarDays = calendar?.days ?? [];
+  const todayRoutine = todayDay ? routineFromDay(todayDay) : null;
+  const isTodaySelected = selectedDate === today;
+  const selectedRoutine = selectedDayDetail ? routineFromDay(selectedDayDetail) : null;
+  const canStart = Boolean(isTodaySelected && todayRoutine?.routineId && todayDay?.routineDayId && todayDay.exercises.length > 0);
+  const hasSelectedRoutine = Boolean(selectedDayDetail?.exercises.length);
+  const visibleExercises = selectedDayDetail?.exercises.slice(0, 3) ?? [];
+  const hiddenExerciseCount = Math.max(0, (selectedDayDetail?.exercises.length ?? 0) - visibleExercises.length);
+  const selectedSummary = selectedDayLoading
+    ? "선택한 날짜의 루틴을 불러오는 중입니다."
+    : routineLoading && !selectedDayDetail
+      ? "오늘 루틴을 찾고 있습니다."
+      : clampText(
+          selectedDayDetail
+            ? chooseRoutineText(selectedDayDetail.summary, selectedDayDetail.weeklyFocus) || "오늘 운동을 간단히 확인하세요."
+            : "선택한 날짜에 등록된 루틴이 없습니다.",
+          TEXT_LIMITS.reasonBody,
+        );
+  const routineReasonCards = useMemo(
+    () => buildRoutineReasonCards(selectedDayDetail, selectedRoutine?.estimatedMinutes, routineLoading),
+    [routineLoading, selectedDayDetail, selectedRoutine?.estimatedMinutes],
+  );
 
-  const loadDashboard = useCallback(async () => {
-    if (!activeProfile) return;
-    setLoading(true);
-    setError('');
-    try {
-      const dayRequest = getRoutineDay(activeProfile.id, today).catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err);
-        if (message.includes('404')) return null;
-        throw err;
+  const hydrateCalendarLabels = useCallback(
+    (days: RoutineCalendarDay[]) => {
+      if (!profile) {
+        return;
+      }
+      const routineDays = days.filter((day) => day.routineId);
+      setCalendarExerciseLabels({});
+      if (!routineDays.length) {
+        return;
+      }
+      void Promise.allSettled(
+        routineDays.map(async (day) => {
+          const detail = await getRoutineDay(profile.id, day.date);
+          return [day.date, compactExerciseNames(detail.exercises)] as const;
+        }),
+      ).then((results) => {
+        const labels: Record<string, string> = {};
+        results.forEach((result) => {
+          if (result.status === "fulfilled" && result.value[1]) {
+            labels[result.value[0]] = result.value[1];
+          }
+        });
+        setCalendarExerciseLabels(labels);
       });
-      const [baselineData, calendarData, dayData, progressData, logsData] = await Promise.all([
-        getBaselineStatus(activeProfile.id),
-        getRoutineCalendar(activeProfile.id, fromDate, toDate),
-        dayRequest,
-        getProgress(activeProfile.id, 30),
-        getCoachLogs(activeProfile.id, 100),
-      ]);
+    },
+    [profile],
+  );
 
-      const complete = baselineComplete(baselineData);
-      setBaseline(baselineData);
-      setBaselineReady(complete);
-      setCalendar(calendarData);
-      setTodayRoutine(dayData);
-      setProgress(progressData);
-      setCoachLogs(logsData.logs ?? []);
-      setRoutine(dayData ? routineFromDay(dayData) : null);
+  const loadHome = useCallback(async () => {
+    if (!profile) {
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const baseline = await getBaselineStatus(profile.id);
+      if (!baseline.face || !baseline.body) {
+        throw new Error("기준 촬영이 완료되어야 오늘 운동을 시작할 수 있습니다.");
+      }
 
-      const latestMetric = progressData.body_metrics[progressData.body_metrics.length - 1];
-      const latestWeight = latestMetric?.weight_kg ?? activeProfile.weight_kg;
-      if (latestWeight > 0) setWeightInput((prev) => prev || String(latestWeight));
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
+      const readCalendar = async () => {
+        const nextCalendar = await getRoutineCalendar(profile.id, monthStartIso(today), monthEndIso(today));
+        setCalendar(nextCalendar);
+        setCalendarNotes(readDayNotes(profile.id));
+        hydrateCalendarLabels(nextCalendar.days);
+        setSelectedDate((current) => current || today);
+        return nextCalendar;
+      };
+
+      let calendarData = await readCalendar();
+      let todayInCalendar = calendarData.days.find((day) => day.date === today);
+
+      if (!todayInCalendar?.routineId) {
+        setRoutineLoading(true);
+        await generateRoutine(profile);
+        calendarData = await readCalendar();
+        todayInCalendar = calendarData.days.find((day) => day.date === today);
+        setRoutineLoading(false);
+      }
+
+      if (!todayInCalendar?.routineId) {
+        setTodayDay(null);
+        setSelectedDayDetail((current) => (selectedDate === today ? null : current));
+        app.setSelectedRoutine(null, null);
+        return;
+      }
+
+      const day = await getRoutineDay(profile.id, today);
+      setTodayDay(day);
+      setCalendarExerciseLabels((current) => ({ ...current, [today]: compactExerciseNames(day.exercises) }));
+      if (selectedDate === today) {
+        setSelectedDayDetail(day);
+      }
+      app.setSelectedRoutine(routineFromDay(day), day);
+    } catch (caught) {
+      setTodayDay(null);
+      setRoutineLoading(false);
+      const fallback = caught instanceof Error && caught.message.includes("기준 촬영")
+        ? caught.message
+        : "오늘 루틴을 찾지 못했습니다. 다시 시도해주세요.";
+      setError(friendlyError(caught, fallback));
     } finally {
       setLoading(false);
     }
-  }, [activeProfile, fromDate, setBaselineReady, setRoutine, today, toDate]);
+  }, [app, hydrateCalendarLabels, profile, selectedDate, today]);
 
   useEffect(() => {
-    if (!activeProfile) {
-      navigate('/');
+    if (!profile) {
+      navigate("/profile-select", { replace: true });
       return;
     }
-    void loadDashboard();
-  }, [activeProfile, loadDashboard, navigate]);
-
-  async function handleGenerateRoutine() {
-    if (!activeProfile) return;
-    if (!hasProfileDetails) {
-      navigate('/baseline-check');
+    if (profileNeedsBaseline(profile)) {
+      navigate("/baseline-setup", { replace: true });
       return;
     }
-    if (!canUseRoutine) {
-      navigate('/baseline-setup');
+    void loadHome();
+  }, []);
+
+  useEffect(() => {
+    if (!profile || !calendar) {
       return;
     }
-    setRoutineLoading(true);
-    setError('');
-    try {
-      const generated = await getRoutine(activeProfile, true);
-      setRoutine(generated);
-      await loadDashboard();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-    } finally {
-      setRoutineLoading(false);
-    }
-  }
-
-  async function handleSaveWeight(event: FormEvent) {
-    event.preventDefault();
-    if (!activeProfile) return;
-    const weight = Number(weightInput);
-    if (!Number.isFinite(weight) || weight <= 0) {
-      setError('몸무게를 숫자로 입력해 주세요.');
+    const calendarDay = calendar.days.find((day) => day.date === selectedDate);
+    if (!calendarDay?.routineId) {
+      setSelectedDayDetail(null);
+      setSelectedDayLoading(false);
       return;
     }
-    setWeightSaving(true);
-    setError('');
-    try {
-      await saveBodyMetric(activeProfile.id, today, weight, weightMemo);
-      setWeightMemo('');
-      await loadDashboard();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-    } finally {
-      setWeightSaving(false);
+    if (selectedDate === today && todayDay) {
+      setSelectedDayDetail(todayDay);
+      setSelectedDayLoading(false);
+      return;
     }
+    let cancelled = false;
+    setSelectedDayLoading(true);
+    void getRoutineDay(profile.id, selectedDate)
+      .then((day) => {
+        if (!cancelled) {
+          setSelectedDayDetail(day);
+          setCalendarExerciseLabels((current) => ({ ...current, [selectedDate]: compactExerciseNames(day.exercises) }));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSelectedDayDetail(null);
+          setError("선택한 날짜의 루틴을 불러오지 못했습니다. 다시 시도해주세요.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setSelectedDayLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [calendar, profile, selectedDate, today, todayDay]);
+
+  if (!profile) {
+    return null;
   }
 
-  function handleStart() {
-    if (!todayRoutine) return;
-    setRoutine(routineFromDay(todayRoutine));
-    setCurrentExerciseIndex(0);
-    navigate('/camera');
-  }
-
-  if (!activeProfile) return null;
-
-  if (loading) {
-    return (
-      <div className="mode-page">
-        <div className="loading-state">
-          <div className="loading-spinner" />
-          <p>운동 홈을 불러오는 중입니다...</p>
-        </div>
-      </div>
-    );
-  }
-
-  const todayItems = todayRoutine ? routineItemsFromExercises(todayRoutine.exercises) : [];
-  const summary = progress?.workout_summary ?? {};
-  const recentMetrics = progress?.body_metrics ?? [];
-  const scheduleDays = calendar?.days ?? [];
-  const historyEntries = Object.entries(historySummary).slice(0, 6);
+  const startWorkout = () => {
+    if (!todayRoutine || !todayDay || !canStart) {
+      setError("운동 시작은 오늘 날짜에 등록된 루틴만 가능합니다.");
+      return;
+    }
+    app.setSelectedRoutine(todayRoutine, todayDay);
+    app.setWorkoutRun({ routine: todayRoutine, day: todayDay, currentIndex: 0, results: [] });
+    navigate("/session");
+  };
 
   return (
-    <div className="mode-page">
-      <div className="mode-header">
-        <button className="back-btn btn-outline" onClick={() => navigate('/')}>프로필</button>
-        <div className="mode-title-block">
-          <h2 className="mode-title">{activeProfile.name} 운동 홈</h2>
-          <div className="mode-meta">
-            <span className="badge source-badge">PC3 연결</span>
-            <span className={`badge ${canUseRoutine ? 'ready-badge' : 'need-badge'}`}>
-              {canUseRoutine ? '베이스라인 완료' : '베이스라인 필요'}
-            </span>
-            <span className="meta-text">{fromDate} ~ {toDate}</span>
-          </div>
+    <AppShell title="루틴" step="4단계" backFallbackTo="/profile-select">
+      {error ? (
+        <div className="inline-alert inline-alert--error">
+          <span>{error}</span>
+          <button
+            type="button"
+            onClick={() => {
+              void loadHome();
+            }}
+          >
+            재시도
+          </button>
         </div>
-        <button className="btn-outline" onClick={() => void loadDashboard()}>새로고침</button>
-      </div>
+      ) : null}
+      {loading ? <div className="inline-alert">오늘 운동과 월간 달력을 불러오는 중입니다.</div> : null}
 
-      {error && <div className="error-notice">{error}</div>}
-
-      <div className="home-scroll">
-        <section className="home-panel today-panel card">
-          <div className="panel-heading">
+      <div className="mode-home-grid">
+        <section className="panel calendar-panel calendar-panel--mode">
+          <div className="panel-heading-row">
             <div>
-              <p className="panel-kicker">오늘</p>
-              <h3>{todayRoutine?.message || todayRoutine?.focus || '오늘 루틴 없음'}</h3>
+              <span className="eyebrow">달력</span>
+              <h2>루틴 달력</h2>
             </div>
-            {todayRoutine && <span className="meta-text">Day {todayRoutine.day_index}</span>}
-          </div>
-
-          {todayRoutine ? (
-            <>
-              <p className="panel-description">{todayRoutine.summary || todayRoutine.weekly_focus}</p>
-              <div className="today-routine-list">
-                {todayItems.map((item, index) => (
-                  <div key={`${item.exercise_type}-${index}`} className="today-routine-item">
-                    <span className="item-index">{index + 1}</span>
-                    <div>
-                      <div className="item-name">{exKo(item.exercise_type)}</div>
-                      <div className="item-detail">
-                        {item.sets}세트 · {item.reps ? `${item.reps}회` : `${item.duration_sec ?? 0}초`}
-                        {' · '}휴식 {item.rest_sec}초
-                      </div>
-                      {item.focus && <div className="item-focus">{item.focus}</div>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <button className="btn-primary start-btn" onClick={handleStart}>운동 시작</button>
-            </>
-          ) : (
-            <div className="empty-state">
-              <p>
-                {canUseRoutine
-                  ? '저장된 오늘 루틴이 없습니다. PC3를 통해 새 주간 루틴을 생성하세요.'
-                  : '루틴을 만들기 전에 프로필 상세정보와 베이스라인 촬영이 필요합니다.'}
-              </p>
-              <button
-                className="btn-primary"
-                onClick={handleGenerateRoutine}
-                disabled={routineLoading}
-              >
-                {canUseRoutine ? (routineLoading ? '생성 중...' : '새 주간 루틴 생성') : '프로필/베이스라인 설정'}
-              </button>
-            </div>
-          )}
-        </section>
-
-        <section className="home-panel card">
-          <div className="panel-heading">
-            <div>
-              <p className="panel-kicker">스케줄</p>
-              <h3>기간 달력</h3>
-            </div>
-            <span className="meta-text">{scheduleDays.length}일</span>
-          </div>
-          <div className="calendar-strip">
-            {scheduleDays.map((day) => (
-              <div
-                key={day.date}
-                className={`calendar-day ${day.date === today ? 'today' : ''} ${day.completed ? 'done' : ''} ${day.skipped ? 'skipped' : ''}`}
-              >
-                <div className="calendar-date">{day.date.slice(5)}</div>
-                <div className="calendar-focus">{day.focus || '-'}</div>
-                <div className="calendar-meta">
-                  {day.routine_day_id ? `#${day.routine_day_id}` : '루틴 없음'}
-                  {workoutCountText(day) && ` · ${workoutCountText(day)}`}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="home-panel card">
-          <div className="panel-heading">
-            <div>
-              <p className="panel-kicker">몸무게</p>
-              <h3>최근 변화 {formatWeightDelta(progress?.weight_delta_kg ?? null)}</h3>
-            </div>
-          </div>
-          <form className="weight-form" onSubmit={handleSaveWeight}>
-            <input
-              value={weightInput}
-              onChange={(event) => setWeightInput(event.target.value)}
-              inputMode="decimal"
-              placeholder="kg"
-            />
-            <input
-              value={weightMemo}
-              onChange={(event) => setWeightMemo(event.target.value)}
-              placeholder="메모"
-            />
-            <button className="btn-primary" disabled={weightSaving}>
-              {weightSaving ? '저장 중...' : '저장'}
+            <button type="button" className="button button--ghost" onClick={() => navigate(`/history?date=${encodeURIComponent(selectedDate)}`)}>
+              기록 보기
             </button>
-          </form>
-          <div className="metric-list">
-            {recentMetrics.slice(-5).reverse().map((metric) => (
-              <div key={metric.id} className="metric-row">
-                <span>{metric.measured_date}</span>
-                <strong>{metric.weight_kg}kg</strong>
-                <span>{metric.memo || ''}</span>
-              </div>
+          </div>
+          <div className="calendar-strip calendar-strip--month">
+            {calendarDays.map((day) => (
+              <button
+                key={day.date}
+                type="button"
+                className={[
+                  day.date === selectedDate ? "is-selected" : "",
+                  day.date === today ? "is-today" : "",
+                  day.completed ? "is-done" : "",
+                  day.skipped ? "is-skipped" : "",
+                  day.routineId ? "" : "is-empty",
+                ].filter(Boolean).join(" ")}
+                onClick={() => setSelectedDate(day.date)}
+              >
+                <strong>{shortDate(day.date)}</strong>
+                <span>{calendarExerciseLabels[day.date] ?? compactTextFromFocus(day.focus)}</span>
+                {dayNotePreview(calendarNotes[day.date] ?? "") ? <em>{dayNotePreview(calendarNotes[day.date] ?? "")}</em> : null}
+              </button>
             ))}
-            {recentMetrics.length === 0 && <p className="muted-text">아직 몸무게 기록이 없습니다.</p>}
+          </div>
+          <div className="calendar-legend" aria-label="달력 상태">
+            <span className="is-selected">선택</span>
+            <span className="is-today">오늘</span>
+            <span className="is-done">완료</span>
+            <span className="is-skipped">스킵</span>
           </div>
         </section>
 
-        <section className="home-panel card">
-          <div className="panel-heading">
-            <div>
-              <p className="panel-kicker">결과</p>
-              <h3>운동 요약</h3>
-            </div>
-          </div>
-          <div className="stats-grid">
-            <div><span>세션</span><strong>{summary.session_count ?? 0}</strong></div>
-            <div><span>운동</span><strong>{summary.workout_count ?? 0}</strong></div>
-            <div><span>스킵</span><strong>{summary.skipped_count ?? 0}</strong></div>
-            <div><span>총 횟수</span><strong>{summary.total_reps ?? 0}</strong></div>
-            <div><span>총 시간</span><strong>{formatDuration(summary.total_duration_sec)}</strong></div>
-            <div><span>안정성</span><strong>{summary.avg_stability_score != null ? `${Math.round(summary.avg_stability_score * 100)}%` : '-'}</strong></div>
-          </div>
-          <div className="exercise-counts">
-            {Object.entries(summary.by_exercise ?? {}).map(([exercise, count]) => (
-              <span key={exercise}>{exKo(exercise)} {count}</span>
-            ))}
-          </div>
-        </section>
-
-        <section className="home-panel card">
-          <div className="panel-heading">
-            <div>
-              <p className="panel-kicker">기록</p>
-              <h3>최근 코칭 전체</h3>
-            </div>
-            <span className="meta-text">{coachLogs.length}개</span>
-          </div>
-          <div className="coach-log-list">
-            {coachLogs.map((log) => (
-              <article key={log.id ?? log.request_id} className="coach-log-row">
-                <div className="coach-log-head">
-                  <strong>{coachingTitle(log)}</strong>
-                  <span>{log.created_at?.slice(0, 10) ?? ''}</span>
-                </div>
-                {coachingLines(log).length > 0 && (
-                  <ul>
-                    {coachingLines(log).map((line, index) => (
-                      <li key={index}>{line}</li>
-                    ))}
-                  </ul>
-                )}
+        <section className={`panel today-panel today-panel--mode ${hasSelectedRoutine ? "" : "today-panel--empty"}`.trim()}>
+          <span className="eyebrow">{isTodaySelected ? "오늘" : shortDate(selectedDate)}</span>
+          <h2>{routineLoading && !selectedDayDetail ? "오늘 루틴 찾는 중" : selectedRoutineTitle(selectedDayDetail)}</h2>
+          <p>{selectedSummary}</p>
+          <div className="routine-list routine-list--today">
+            {visibleExercises.map((exercise, index) => (
+              <article key={`${exercise.exercise}-${index}`}>
+                <span>{index + 1}</span>
+                <strong>{EXERCISE_LABELS[exercise.exercise]}</strong>
+                <em>
+                  {exercise.sets ?? 1}세트 · {formatExerciseTarget(exercise.reps, exercise.durationSec)} · 휴식 {exercise.restSec ?? 45}초
+                </em>
+                <small>{exercise.focus || exercise.reason || "자세를 확인하며 진행"}</small>
               </article>
             ))}
-            {coachLogs.length === 0 && <p className="muted-text">아직 저장된 코칭이 없습니다.</p>}
+            {hiddenExerciseCount > 0 ? <p className="routine-more-copy">외 {hiddenExerciseCount}개 운동</p> : null}
+            {!selectedDayDetail?.exercises.length ? <p className="empty-copy">달력에 루틴이 배정되면 여기에 표시됩니다.</p> : null}
           </div>
-        </section>
-
-        <section className="home-panel card">
-          <div className="panel-heading">
-            <div>
-              <p className="panel-kicker">근거</p>
-              <h3>루틴/코칭 근거</h3>
+          <div className="routine-reason-card">
+            <div className="routine-reason-card__head">
+              <span className="eyebrow">추천 이유</span>
+              <strong>왜 이 루틴인가요?</strong>
+              <p>{selectedDayDetail ? "운동 전에 알아두면 좋은 내용만 간단히 정리했어요." : "오늘 루틴을 찾고 있습니다."}</p>
             </div>
-          </div>
-          {weeklyAdjustment && (
-            <div className="adjustment-summary">
-              <strong>{adjustmentLabel(weeklyAdjustment)}</strong>
-              {weeklyAdjustment.reasons?.length > 0 && (
-                <span>이유: {weeklyAdjustment.reasons.slice(0, 2).join(', ')}</span>
-              )}
-            </div>
-          )}
-          <div className="evidence-grid">
-            <div>
-              <h4>루틴 근거</h4>
-              {routineEvidence.slice(0, 5).map((item, index) => {
-                const formatted = formatEvidence(item);
-                return (
-                  <p key={index}>
-                    <strong>{formatted.title}</strong>
-                    {formatted.meta && <span>{formatted.meta}</span>}
-                  </p>
-                );
-              })}
-              {routineEvidence.length === 0 && <p className="muted-text">루틴 근거는 새 루틴 생성 후 표시됩니다.</p>}
-            </div>
-            <div>
-              <h4>코칭 근거</h4>
-              {latestCoachingEvidence.slice(0, 5).map((item, index) => {
-                const formatted = formatEvidence(item);
-                return (
-                  <p key={index}>
-                    <strong>{formatted.title}</strong>
-                    {formatted.meta && <span>{formatted.meta}</span>}
-                  </p>
-                );
-              })}
-              {latestCoachingEvidence.length === 0 && <p className="muted-text">코칭 근거는 운동 종료 후 표시됩니다.</p>}
-            </div>
-          </div>
-          {historyEntries.length > 0 && (
-            <div className="history-summary">
-              {historyEntries.map(([key, value]) => (
-                <span key={key}>{key}: {String(value)}</span>
+            <div className="routine-reason-grid">
+              {routineReasonCards.map((card) => (
+                <article key={card.label}>
+                  <span>{card.label}</span>
+                  <strong>{card.title}</strong>
+                  <p>{card.body}</p>
+                </article>
               ))}
             </div>
-          )}
+          </div>
+          <div className="footer-actions">
+            <button type="button" className="button button--primary" onClick={startWorkout} disabled={!canStart}>
+              {routineLoading ? "루틴 찾는 중" : isTodaySelected ? (canStart ? "운동 시작" : "오늘 루틴 확인 중") : "오늘만 시작 가능"}
+            </button>
+          </div>
         </section>
       </div>
-    </div>
+    </AppShell>
   );
 }

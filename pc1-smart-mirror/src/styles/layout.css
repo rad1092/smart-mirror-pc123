@@ -1,0 +1,239 @@
+.window-controls {
+  position: fixed;
+  top: 10px;
+  right: 12px;
+  z-index: 50;
+  display: flex;
+  gap: 6px;
+}
+
+.window-controls button {
+  width: 34px;
+  height: 28px;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.back-button {
+  position: fixed;
+  top: 10px;
+  left: 12px;
+  z-index: 60;
+  min-height: 34px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.42);
+  color: var(--text);
+  padding: 0 0.85rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-weight: 900;
+}
+
+.back-button span {
+  color: var(--cyan);
+  font-size: 1.15rem;
+  line-height: 1;
+}
+
+.mirror-shell {
+  width: 100vw;
+  height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  padding: 2rem;
+  gap: 1.25rem;
+}
+
+.mirror-shell__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding-right: 8rem;
+  padding-left: 5.8rem;
+}
+
+.mirror-shell__header h1 {
+  margin: 0.15rem 0 0;
+  font-size: clamp(2.2rem, 5vw, 5.4rem);
+  line-height: 0.95;
+}
+
+.mirror-shell__header .optical-ko-title {
+  transform: translateX(-0.08em);
+}
+
+.mirror-shell__header p {
+  margin: 0.75rem 0 0;
+  color: var(--muted);
+}
+
+.mirror-shell__body {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  overflow: hidden;
+}
+
+.mirror-shell__footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.footer-actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.screen-grid {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(320px, 0.95fr) minmax(360px, 1.25fr);
+  gap: 1rem;
+  overflow: hidden;
+}
+
+.screen-grid--profile {
+  grid-template-columns: minmax(300px, 380px) 1fr;
+}
+
+.form-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.field {
+  position: relative;
+  display: grid;
+  gap: 0.4rem;
+  color: var(--muted);
+}
+
+.field > span {
+  padding-left: 0.85rem;
+}
+
+.field-label {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.field input,
+.field select,
+.edit-row input,
+.weight-form input {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  padding: 0 0.85rem;
+}
+
+.field em {
+  position: absolute;
+  right: 0.75rem;
+  bottom: 0.72rem;
+}
+
+.choice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.choice-grid button,
+.choice-wide {
+  min-height: 52px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-weight: 800;
+}
+
+.choice-grid button.is-selected,
+.choice-wide.is-selected {
+  border-color: var(--cyan);
+  color: #001017;
+  background: var(--cyan);
+}
+
+.choice-grid--goals {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.choice-grid--goals button {
+  min-height: 58px;
+  text-align: left;
+  padding: 0 1rem;
+}
+
+.step-dots {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.step-dots span {
+  width: 28px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--line-soft);
+}
+
+.step-dots .is-active {
+  background: var(--cyan);
+}
+
+.demo-panel {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 80;
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+  max-width: calc(100vw - 32px);
+  padding: 0.45rem;
+  border: 1px solid rgba(255, 204, 102, 0.6);
+  border-radius: 8px;
+  background: rgba(8, 10, 12, 0.88);
+}
+
+.demo-panel--expanded {
+  flex-wrap: wrap;
+  max-width: min(920px, calc(100vw - 32px));
+}
+
+.demo-panel span {
+  color: var(--warn);
+  font-size: 0.72rem;
+  font-weight: 900;
+  margin: 0 0.35rem;
+}
+
+.demo-panel button {
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  min-height: 30px;
+  padding: 0 0.55rem;
+}
+
+@media (max-width: 860px) {
+  .mirror-shell__header {
+    padding-top: 2.8rem;
+    padding-left: 0;
+    padding-right: 7rem;
+  }
+}

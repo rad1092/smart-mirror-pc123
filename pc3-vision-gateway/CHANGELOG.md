@@ -1,6 +1,24 @@
 # PC3 변경 이력
 
-이 문서는 `git log`와 현재 작업 내용을 기준으로 PC3가 어떻게 바뀌었는지 정리합니다.
+이 문서는 PC3가 PC1과 PC2 사이에서 맡는 실제 책임과 최근 정리 흐름을 기록합니다.
+
+## 2026-05-22
+
+### 문서와 현재 런타임 구조 정렬
+
+- README를 현재 구조 기준으로 다시 정리했습니다.
+- PC3의 현재 역할을 `PC1 API + vision gateway + local app ledger + PC2 generation bridge`로 명확히 했습니다.
+- 활성 PC2 호출을 `POST /api/routine/profile`, `POST /api/coach/generate` 두 개로 정리했습니다.
+- day/calendar, body metric, progress, coach log 조회는 PC2 proxy가 아니라 PC3 app DB 기준이라고 문서화했습니다.
+- PC2 실패 시 PC3가 local mock/fallback 루틴이나 코칭을 성공처럼 반환하지 않는다는 기준을 다시 맞췄습니다.
+- `.env.example`과 문서의 기본 `PC2_TIMEOUT_SECONDS`를 코드 기본값인 90초 기준으로 맞췄습니다.
+
+### PC1/PC2 최신 소스와의 계약 정리
+
+- PC1은 계속 PC3만 호출하고 PC2를 직접 호출하지 않는 구조로 정리했습니다.
+- PC2는 루틴 생성과 운동 완료 코칭 JSON을 만드는 생성 엔진으로 정리했습니다.
+- PC3가 PC2 응답을 저장하고, PC1 화면 재조회에 필요한 데이터 원본은 PC3 SQLite app DB가 되도록 문서 표현을 맞췄습니다.
+- 오래된 PC2 day/progress/coach-log proxy 설명과 local fallback coaching 설명을 제거했습니다.
 
 ## 2026-05-19
 
@@ -61,25 +79,10 @@ PC1은 이 API들을 통해 프로필, 몸무게, progress, 코칭 로그를 PC3
 - 오래된 trigger engine과 smoke script를 제거했습니다.
 - PC3는 camera/baseline/session/gateway/app-store 역할만 유지합니다.
 
-## 최근 커밋 흐름
-
-- `docs: add pc1 pc3 connection setup`
-  - PC1이 PC3만 보도록 연결 문서를 추가했습니다.
-- `chore: increase pc2 timeout`
-  - PC2 호출 대기 시간을 늘렸습니다.
-- `docs: clarify pc1 ui contract`
-  - PC1과 PC3의 UI/API 계약을 문서화했습니다.
-- `feat: stabilize live exercise counting`
-  - 실시간 운동 카운팅 흐름을 안정화했습니다.
-- `feat: stabilize pc3 target tracking and frame contract`
-  - 대상 추적과 frame 계약을 안정화했습니다.
-- `fix: simplify baseline slot handling`
-  - baseline slot 처리를 단순화했습니다.
-
-## 현재 확인 기준
+## 확인 기준
 
 - `uv run --with-requirements requirements.txt python -m pytest -q`가 통과해야 합니다.
 - PC3 `/api/users/profiles`가 PC3 DB 기준으로 프로필을 반환해야 합니다.
 - 프로필 DELETE가 PC3 app DB와 baseline을 같이 정리해야 합니다.
-- PC3 README와 SKILL은 “PC3 원장, PC2 생성 엔진” 구조와 충돌하지 않아야 합니다.
+- PC3 README, PC1/PC2 연동 문서, SKILL은 `PC3 원장, PC2 생성 엔진` 구조와 충돌하지 않아야 합니다.
 - `.env`, SQLite DB, 로그, tmp/cache 파일은 커밋하지 않습니다.

@@ -1,5 +1,5 @@
 !macro NSIS_HOOK_POSTINSTALL
-  CreateShortCut "$DESKTOP\Smart Mirror.lnk" "$INSTDIR\smart-mirror.exe"
+  CreateShortCut "$DESKTOP\Smart Mirror.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL

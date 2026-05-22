@@ -1,8 +1,8 @@
 # PC1 UI/UX 계약 문서
 
-문서 갱신 시각: `2026-05-14 16:39:25 +09:00`
+문서 갱신 시각: `2026-05-22 16:55:00 +09:00`
 
-이 문서는 PC1 프론트엔드 작업자와 PC1 쪽 Codex가 PC3 계약을 그대로 맞추기 위한 기준 문서입니다. PC1은 UI/UX와 카메라 프레임 업로드를 담당하고, PC3는 baseline 검증, 루틴 중계, 운동 자세 분석, WebSocket 업데이트, 운동 후 코칭 중계를 담당합니다.
+이 문서는 PC1 프론트엔드 작업자와 PC1 쪽 Codex가 PC3 계약을 그대로 맞추기 위한 기준 문서입니다. PC1은 UI/UX와 카메라 프레임 업로드를 담당하고, PC3는 baseline 검증, 루틴 저장, 날짜별 루틴 조회, 운동 자세 분석, WebSocket 업데이트, 운동 결과 저장, 운동 후 코칭 중계를 담당합니다.
 
 ## 1. 기본 원칙
 
@@ -169,8 +169,8 @@ Content-Type: application/json
 
 표시 기준:
 
-- `source="ai"`: PC2 루틴이 성공적으로 반영된 상태입니다.
-- `source="basic"`: PC2 실패 또는 fallback 상태입니다. PC1은 화면을 죽이지 말고 기본 루틴으로 시작 가능하게 보여줍니다.
+- `source="ai"`: PC2 루틴이 성공적으로 반영되고 PC3 app DB에 저장된 상태입니다.
+- 현재 PC3는 PC2 실패를 `source="basic"` fallback 성공으로 포장하지 않습니다. 루틴 생성 실패는 오류 상태로 처리합니다.
 - `items`는 추천 카드 목록에 사용합니다.
 - `start_exercise_type`은 바로 운동 시작 버튼의 기본 운동 타입입니다.
 - `routine_id`, `scheduled_dates`, `weekly_routine`, `how_to`, `tips`는 결과/날짜별 루틴 화면에서 보존합니다.
@@ -179,6 +179,7 @@ Content-Type: application/json
 
 - HTTP `409` + `detail.reason="baseline_incomplete"`: baseline 두 항목이 PC3 DB에 저장되지 않았습니다.
 - HTTP `422`: 프로필 필수값 또는 enum이 잘못되었습니다.
+- HTTP `502`/`503`: PC2 루틴 생성 실패 또는 연결 실패입니다.
 
 ## 5. 날짜별 루틴 화면 계약
 
@@ -223,8 +224,7 @@ GET /api/routines/profile/{user_id}/day?target_date=YYYY-MM-DD
 - `message`: 오늘 루틴 안내 문구.
 - `exercises[].exercise`: 운동 시작 시 `goal`로 넘길 운동 타입.
 - `how_to`, `tips`: 운동 상세/도움말 UI에 표시.
-- HTTP `404`: 해당 날짜 루틴이 없습니다.
-- HTTP `503`: PC2 날짜별 루틴 API에 연결할 수 없습니다.
+- HTTP `404`: 해당 날짜 루틴이 PC3 app DB에 없습니다. 날짜별 루틴 조회는 PC2를 다시 호출하지 않습니다.
 
 ## 6. 운동 세션 화면 계약
 
@@ -514,8 +514,8 @@ POST /api/sessions/{session_id}/stop
 
 - 결과 화면의 운동 타입/횟수/품질은 `features.exercise` 기준으로 표시합니다.
 - 코칭 문구는 `coaching.summary`, `coaching.mirror_message`, `coaching.pc2_payload.display_lines`를 우선 사용합니다.
-- `coaching`이 `null`이면 운동 결과만 표시하고, 코칭 생성 실패 안내를 보조 문구로 표시합니다.
-- `measurement_quality`가 낮으면 PC3가 PC2 호출을 건너뛰고 local fallback coaching을 반환할 수 있습니다.
+- `coaching`이 `null`이면 운동 결과만 표시하고, 코칭이 없다는 안내를 보조 문구로 표시합니다.
+- session stop에서 PC2 코칭 호출이 실패하면 PC3는 502/503으로 실패합니다. 측정 품질이 낮다는 이유만으로 local fallback coaching을 성공 응답으로 만들지 않습니다.
 
 ## 12. PC1 금지사항 체크리스트
 

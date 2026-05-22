@@ -1,8 +1,8 @@
 # PC1 Integration Guide
 
 PC1 is the exercise-only frontend. PC3 provides baseline validation, pre-exercise
-routine planning, pose analysis, realtime feedback, and post-exercise coaching
-bridging.
+routine planning, pose analysis, realtime feedback, local app-data storage, and
+post-exercise coaching bridging.
 
 UI/UX 구현자는 먼저 repo root의 `PC1_UI_CONTRACT.md`를 읽어야 합니다. 이 문서는 개발 연동 세부 정보이고, 화면 흐름과 표시 기준의 우선 계약은 `PC1_UI_CONTRACT.md`입니다.
 
@@ -118,7 +118,9 @@ PC3 also accepts the newer flat routine request shape:
 }
 ```
 
-PC3 response shape is PC1 `RecommendationResponsePayload`:
+PC3 response shape is PC1 `RecommendationResponsePayload`. PC3 stores the full
+routine plan and generated routine days in its app DB before returning this
+response:
 
 ```json
 {
@@ -178,8 +180,8 @@ response, PC3 returns `502`. PC3 does not create local fallback routines.
 GET /api/routines/profile/{user_id}/day?target_date=YYYY-MM-DD
 ```
 
-PC3 proxies the request to PC2 `/api/routine/profile/{user_id}/day` and returns
-the selected day's routine:
+PC3 reads the selected day's routine from the PC3 app DB. It does not call PC2
+again for day lookup:
 
 ```json
 {
@@ -208,7 +210,7 @@ the selected day's routine:
 }
 ```
 
-PC2 404 is returned as 404. PC2 connection failures return 503.
+If no stored routine day exists for that date, PC3 returns `404`.
 
 ## 4. Exercise Session
 
@@ -350,7 +352,8 @@ POST /api/sessions/{session_id}/stop
 
 At stop time, PC3 finalizes the exercise feature and calls PC2
 `/api/coach/generate`. Measurement quality is sent to PC2 as context; PC3 does
-not replace PC2 with local guidance.
+not replace PC2 with local guidance. PC2 connection failures return `503`;
+invalid PC2 coaching responses return `502`.
 
 Important response fields:
 
@@ -365,3 +368,22 @@ Important response fields:
 - `coaching.exercise_plan`
 - `coaching.mirror_message`
 - `coaching.pc2_payload`
+
+## 7. Skip Session
+
+```http
+POST /api/sessions/{session_id}/skip
+Content-Type: application/json
+```
+
+Optional request:
+
+```json
+{
+  "reason": "user_cancelled"
+}
+```
+
+Skip does not call PC2 and does not masquerade as a completed workout. PC3 stores
+a `skipped` workout result in the app DB, then returns the current exercise
+features with `coaching=null`.

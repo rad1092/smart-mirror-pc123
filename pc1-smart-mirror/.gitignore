@@ -11,10 +11,15 @@ node_modules
 dist
 dist-ssr
 *.local
+
+# Local environment (keep .env.example only)
 .env
-SmartMirror-PC1-Setup*.exe
-pc1-screen-check*.png
-pc1-delete-button-check*.png
+.env.local
+
+# Tauri/Rust generated output
+src-tauri/target
+src-tauri/gen
+src-tauri/icons/*.png
 
 # Editor directories and files
 .vscode/*

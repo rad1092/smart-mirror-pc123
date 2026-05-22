@@ -7,7 +7,7 @@
 ```text
 PC1
   -> PC3
-      -> PC2 routine/coach/day API 호출
+      -> PC2 routine/coach API 호출
          timeout = 90초
       -> PC2 응답 수신
       -> PC1 화면용 응답으로 변환
@@ -16,7 +16,7 @@ PC1
 중요한 점:
 
 - PC3의 PC2 호출 방식은 그대로 `httpx.AsyncClient`를 사용한다.
-- 운동 전 루틴, 날짜별 루틴, 운동 후 코칭 호출은 같은 `PC2_TIMEOUT_SECONDS` 값을 공유한다.
+- 운동 전 루틴과 운동 후 코칭 호출은 같은 `PC2_TIMEOUT_SECONDS` 값을 공유한다.
 - 새 작업자는 `.env.example`의 `PC2_TIMEOUT_SECONDS=90`을 기준으로 로컬 `.env`를 맞추면 된다.
 - timeout을 늘린 것은 PC2 LLM 생성 시간이 길어질 수 있기 때문이며, PC3의 JSON 정제/whitelist 계약은 바꾸지 않았다.
 
@@ -95,7 +95,7 @@ PC1 프론트엔드
       -> 운동 후 코칭 생성
 ```
 
-현재 구조에서 PC1은 PC2를 직접 호출하지 않습니다. PC3가 PC1과 PC2 사이의 계약 정렬, 검증, 변환, fallback을 담당합니다.
+현재 구조에서 PC1은 PC2를 직접 호출하지 않습니다. PC3가 PC1과 PC2 사이의 계약 정렬, 검증, 변환, 저장을 담당합니다.
 
 ## 2026-05-14 13:50:34 +09:00 - 운동별 frame cadence 계약 보강
 
@@ -135,8 +135,8 @@ PC1 exercise screen
       -> PC3가 locked target 기준으로 pose 분석
       -> count/state/feedback/target_status broadcast
   -> POST /api/sessions/{session_id}/stop
-      -> 측정 품질이 충분하면 PC2 운동 후 코칭 호출
-      -> 측정 품질이 낮으면 PC3 한국어 fallback 코칭 반환
+      -> PC2 운동 후 코칭 호출
+      -> PC2 실패 시 502/503으로 명확히 실패
 ```
 
 중요한 점:
@@ -333,7 +333,7 @@ frame
 - target lost/reconnect 처리
 - 운동 타입 감지 정보
 - goal mismatch flag
-- PC2 호출 전 measurement quality guard
+- PC2 호출 전 measurement quality 계산/전달
 
 ## 운동 전 루틴 플랜 흐름
 
@@ -352,7 +352,7 @@ PC1 RecommendationRequestPayload
 
 중요한 점은 PC3가 PC1의 baseline claim만 믿지 않고, PC3 baseline DB에 실제로 `source="user"`인 필수 slot이 저장되어 있는지 다시 확인한다는 점입니다.
 
-PC2가 없거나 실패하면 PC3는 `source="basic"`인 local fallback 루틴을 반환합니다.
+PC2가 없거나 실패하면 PC3는 local fallback 루틴을 반환하지 않고 502/503 계열 오류로 실패합니다.
 
 ## 최신 스케줄 루틴 흐름
 
@@ -388,16 +388,15 @@ PC1 nested RecommendationRequestPayload
 ```text
 PC1
   -> PC3 GET /api/routines/profile/{user_id}/day?target_date=YYYY-MM-DD
-  -> PC2 GET /api/routine/profile/{user_id}/day?target_date=YYYY-MM-DD
-  -> PC3 normalized RoutineDayResponse
+  -> PC3 app DB에서 저장된 routine_day 조회
+  -> PC3 RoutineDayResponse
   -> PC1
 ```
 
 오류 처리:
 
-- PC2 404는 PC3에서도 404로 반환.
-- PC2 연결 실패는 503으로 반환.
-- 그 외 PC2 HTTP 실패는 502로 반환.
+- 저장된 routine_day가 없으면 404로 반환.
+- day/calendar 조회는 현재 PC2를 다시 호출하지 않음.
 
 ## 현재 PC3 책임 범위
 
@@ -413,20 +412,20 @@ PC1
   - MediaPipe Lite/Full 모델 사용
   - target tracking
   - 운동별 count/posture 분석
-  - measurement quality guard
+  - measurement quality 계산/전달
 - PC2 호환:
   - strict request filtering
   - raw image forwarding 금지
   - unknown/null field forwarding 금지
   - routine schedule metadata 보존
-  - PC2 unavailable fallback
+  - PC2 실패를 fallback 성공으로 포장하지 않음
 
 ## 현재 버전 스냅샷
 
-- 현재 HEAD: `3f418a8`
+- 현재 HEAD: 문서 갱신 시점의 로컬 작업 트리 기준
 - 현재 실질 버전:
   - PC3 exercise-only gateway
   - dual MediaPipe pose analysis
   - PC1 baseline/realtime/session 호환
-  - PC2 운동 후 coaching 중계
-  - PC2 스케줄 루틴 proxy 지원
+  - PC2 운동 전 routine 생성과 운동 후 coaching 중계
+  - PC3 app DB 기반 스케줄 루틴 조회

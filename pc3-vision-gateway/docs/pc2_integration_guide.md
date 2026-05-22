@@ -1,33 +1,29 @@
 # PC2 Integration Guide
 
-PC3 calls PC2 only through sanitized, contract-shaped payloads. PC2 does not
-receive raw camera data or PC1 display-only fields.
+PC3 calls PC2 only for generation work. PC3 owns the PC1-facing app data ledger
+and does not send raw camera data or PC1 display-only fields to PC2.
 
-## Endpoints
+## Active Endpoints
 
-PC3 uses these PC2 endpoints:
+Current PC3 routes actively call these PC2 endpoints:
 
 ```text
 POST /api/routine/profile
-GET  /api/routine/profile/{user_id}/day?target_date=YYYY-MM-DD
-GET  /api/routine/profile/{user_id}/calendar?from_date=YYYY-MM-DD&to_date=YYYY-MM-DD
-POST /api/users/{user_id}/body-metrics
-GET  /api/users/{user_id}/progress?days=30
 POST /api/coach/generate
-GET  /api/coach/logs/{user_id}?limit=10
 ```
 
 PC3 settings:
 
 ```env
 PC2_ROUTINE_API_URL=http://<PC2_HOST>:7000/api/routine/profile
-PC2_ROUTINE_DAY_API_URL=http://<PC2_HOST>:7000/api/routine/profile/{user_id}/day
-PC2_ROUTINE_CALENDAR_API_URL=http://<PC2_HOST>:7000/api/routine/profile/{user_id}/calendar
-PC2_BODY_METRICS_API_URL=http://<PC2_HOST>:7000/api/users/{user_id}/body-metrics
-PC2_PROGRESS_API_URL=http://<PC2_HOST>:7000/api/users/{user_id}/progress
 PC2_COACH_API_URL=http://<PC2_HOST>:7000/api/coach/generate
-PC2_COACH_LOGS_API_URL=http://<PC2_HOST>:7000/api/coach/logs/{user_id}
+PC2_TIMEOUT_SECONDS=90
 ```
+
+PC3 does not currently call PC2 for day lookup, calendar lookup, body metrics,
+progress, or coach-log reads. Those PC1-facing reads come from the PC3 SQLite app
+DB after PC3 stores routine plans, routine days, workout results, and coaching
+logs.
 
 If PC2 is unavailable, PC3 returns `503`. If PC2 returns an invalid response,
 PC3 returns `502`. PC3 does not create local routine or coaching fallback
@@ -35,8 +31,9 @@ responses.
 
 ## Pre-Exercise Routine Request
 
-PC1 sends `RecommendationRequestPayload` to PC3. PC3 verifies the saved baseline
-and sends PC2 a compact profile request:
+PC1 sends `RecommendationRequestPayload` to PC3. PC3 verifies the saved baseline,
+adds recent PC3 user history when available, and sends PC2 a compact profile
+request:
 
 ```json
 {
@@ -48,25 +45,36 @@ and sends PC2 a compact profile request:
   "purpose": "pre_exercise_routine",
   "profile_name": "Mirror User",
   "weight_kg": 70,
-  "start_date": "2026-05-13"
+  "start_date": "2026-05-22",
+  "user_history": {
+    "body_metrics": [],
+    "workout_results": [],
+    "coach_logs": [],
+    "latest_routine": null,
+    "calendar_days": []
+  }
 }
 ```
 
 Mapping rules:
 
-- `goal` becomes a human-readable `user_goal`.
-- `experience_level` becomes a human-readable `exercise_experience`.
+- `goal` becomes `user_goal`.
+- `experience_level` becomes `exercise_experience`.
 - `weekly_frequency` maps as `once_twice=2`, `three_four=4`, `five_plus=5`.
 - `limitations` maps to PC2 display labels: `무릎`, `허리`, `어깨`, `발목`.
-- `start_date` is passed when PC1/PC3 provides it. If omitted, PC2 uses its
-  server date as Day 1.
+- `start_date` is passed when PC1/PC3 provides it. If omitted, PC3/PC2 can use
+  the current server date as Day 1.
 - Raw images, baseline slot data, PC1 UI-only fields, and null fields are not
   sent.
 
+PC3 also accepts the newer flat PC1 request shape and normalizes it before
+calling PC2.
+
 ## Pre-Exercise Routine Response
 
-PC2 should return a `RoutineProfileResponse` with a weekly routine. PC3 flattens
-the first valid exercises into PC1 `RecommendationResponsePayload.items`.
+PC2 should return a routine JSON object with a usable `weekly_routine`. PC3
+flattens the first valid exercises into PC1 preview `items`, stores the complete
+routine plan, and saves each scheduled day to PC3 app DB.
 
 Example PC2 response:
 
@@ -96,52 +104,15 @@ Example PC2 response:
   "cautions": ["Stop if knee pain appears."],
   "pc3_payload": {
     "routine_id": "routine_abcd1234",
-    "start_date": "2026-05-13",
-    "scheduled_dates": ["2026-05-13", "2026-05-14"],
-    "weekly_routine": []
+    "start_date": "2026-05-22",
+    "scheduled_dates": ["2026-05-22", "2026-05-23"]
   }
 }
 ```
 
-PC3 preserves `pc3_payload.routine_id`, `pc3_payload.start_date`,
-`pc3_payload.scheduled_dates`, and the detailed `how_to`/`tips` fields for PC1.
-
-## Date-Based Routine Lookup
-
-PC3 calls this PC2 endpoint when PC1 asks for a specific scheduled day:
-
-```http
-GET /api/routine/profile/{user_id}/day?target_date=YYYY-MM-DD
-```
-
-PC2 response:
-
-```json
-{
-  "routine_id": "routine_abcd1234",
-  "user_id": "profile_1",
-  "scheduled_date": "2026-05-14",
-  "day_index": 2,
-  "day_label": "Day 2",
-  "focus": "upper body support",
-  "exercises": [
-    {
-      "exercise": "pushup",
-      "sets": 3,
-      "reps": 8,
-      "duration_sec": null,
-      "rest_sec": 60,
-      "focus": "body line",
-      "reason": "Build upper support.",
-      "how_to": "Lower and press while keeping one straight body line.",
-      "tips": "Brace the core."
-    }
-  ],
-  "summary": "Weekly routine",
-  "weekly_focus": "Consistency",
-  "message": "Today is pushup day."
-}
-```
+PC3 preserves `routine_id`, `start_date`, `scheduled_dates`, `weekly_routine`,
+`how_to`, and `tips` for PC1. After this response is stored, PC1 day/calendar
+reads are served by PC3 app DB.
 
 ## Post-Exercise Coaching Request
 
@@ -151,6 +122,7 @@ PC3 calls coaching only for completed exercise sessions:
 | --- | --- | --- |
 | `exercise` | `session_completed` | yes |
 | `exercise` | frame update | no |
+| `exercise` | skipped session | no |
 
 Request:
 
@@ -228,4 +200,5 @@ PC2 should return `CoachingResponse` JSON:
 }
 ```
 
-PC3 preserves this response under the session stop `coaching` field for PC1.
+PC3 preserves this response under the session stop `coaching` field, saves a
+completed workout result, and stores a coach log in PC3 app DB.

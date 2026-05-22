@@ -1,162 +1,72 @@
-import { useEffect, useState, type MouseEvent } from 'react';
-import {
-  PhysicalPosition,
-  PhysicalSize,
-  currentMonitor,
-  getCurrentWindow,
-} from '@tauri-apps/api/window';
-import './WindowControls.css';
+import { type MouseEvent, useCallback } from "react";
 
-const HALF_WINDOW_RATIO = 0.5;
+type TauriWindow = {
+  minimize: () => Promise<void>;
+  close: () => Promise<void>;
+  isFullscreen: () => Promise<boolean>;
+  setFullscreen: (fullscreen: boolean) => Promise<void>;
+  setSize?: (size: unknown) => Promise<void>;
+  setPosition?: (position: unknown) => Promise<void>;
+  startDragging: () => Promise<void>;
+};
 
-function getAppWindow() {
-  try {
-    return getCurrentWindow();
-  } catch {
-    return null;
-  }
+async function getTauriWindow(): Promise<TauriWindow> {
+  const mod = (await import("@tauri-apps/api/window")) as { getCurrentWindow: () => TauriWindow };
+  return mod.getCurrentWindow();
 }
 
-const appWindow = getAppWindow();
-
-function waitForWindowModeChange() {
-  return new Promise((resolve) => window.setTimeout(resolve, 80));
-}
-
-async function getNativeHalfSizeState(fallback: boolean) {
-  if (!appWindow) return fallback;
-  try {
-    return !(await appWindow.isFullscreen());
-  } catch {
-    return fallback;
-  }
-}
-
-async function minimizeWindow() {
-  if (!appWindow) return;
-  try {
-    await appWindow.minimize();
-  } catch (error) {
-    console.error('Failed to minimize window', error);
-  }
-}
-
-async function closeWindow() {
-  if (!appWindow) {
-    window.close();
+async function restoreWindowedSize(window: TauriWindow) {
+  if (!window.setSize || !window.setPosition) {
     return;
   }
-  try {
-    await appWindow.close();
-  } catch (error) {
-    console.error('Failed to close Tauri window', error);
-    window.close();
-  }
+  const dpi = (await import("@tauri-apps/api/dpi")) as {
+    LogicalPosition: new (x: number, y: number) => unknown;
+    LogicalSize: new (width: number, height: number) => unknown;
+  };
+  await window.setSize(new dpi.LogicalSize(1280, 820));
+  await window.setPosition(new dpi.LogicalPosition(80, 60));
 }
 
 export default function WindowControls() {
-  const [isHalfSize, setIsHalfSize] = useState(false);
-
-  useEffect(() => {
-    getNativeHalfSizeState(false).then(setIsHalfSize);
+  const minimize = useCallback((event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    void getTauriWindow().then((window) => window.minimize());
   }, []);
 
-  async function toggleHalfSizeWindow() {
-    if (!appWindow) {
-      setIsHalfSize((value) => !value);
-      return;
-    }
-
-    try {
-      const nativeHalfSize = await getNativeHalfSizeState(isHalfSize);
-
-      if (nativeHalfSize) {
-        await appWindow.setFullscreen(true);
-        await waitForWindowModeChange();
-        setIsHalfSize(false);
-        return;
+  const toggleWindowMode = useCallback((event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    void getTauriWindow().then(async (window) => {
+      const isFullscreen = await window.isFullscreen();
+      await window.setFullscreen(!isFullscreen);
+      if (isFullscreen) {
+        await restoreWindowedSize(window);
       }
+    });
+  }, []);
 
-      const monitor = await currentMonitor();
-      const size = monitor?.workArea.size ?? monitor?.size;
-      const position = monitor?.workArea.position ?? monitor?.position;
-      const screen = window.screen as Screen & { availLeft?: number; availTop?: number };
-      const fallbackWidth = screen?.availWidth || window.innerWidth || 1280;
-      const fallbackHeight = screen?.availHeight || window.innerHeight || 720;
-      const fallbackLeft = screen?.availLeft || 0;
-      const fallbackTop = screen?.availTop || 0;
-      const monitorWidth = size?.width ?? fallbackWidth;
-      const monitorHeight = size?.height ?? fallbackHeight;
-      const monitorLeft = position?.x ?? fallbackLeft;
-      const monitorTop = position?.y ?? fallbackTop;
-      const nextWidth = Math.round(monitorWidth * HALF_WINDOW_RATIO);
-      const nextHeight = Math.round(monitorHeight * HALF_WINDOW_RATIO);
-      const nextLeft = Math.round(monitorLeft + (monitorWidth - nextWidth) / 2);
-      const nextTop = Math.round(monitorTop + (monitorHeight - nextHeight) / 2);
+  const close = useCallback((event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    void getTauriWindow().then((window) => window.close());
+  }, []);
 
-      await appWindow.setFullscreen(false);
-      await waitForWindowModeChange();
-      await appWindow.setSize(new PhysicalSize(nextWidth, nextHeight));
-      await appWindow.setPosition(new PhysicalPosition(nextLeft, nextTop));
-      setIsHalfSize(true);
-    } catch (error) {
-      console.error('Failed to toggle half-size window', error);
-    }
-  }
-
-  async function startWindowDrag(event: MouseEvent<HTMLDivElement>) {
-    if (!isHalfSize || event.button !== 0) {
+  const drag = useCallback((event: MouseEvent<HTMLDivElement>) => {
+    if ((event.target as HTMLElement).closest("button")) {
       return;
     }
-
-    const target = event.target as HTMLElement;
-    if (target.closest('button')) {
-      return;
-    }
-
-    try {
-      if (!appWindow) return;
-      await appWindow.startDragging();
-    } catch (error) {
-      console.error('Failed to start window dragging', error);
-    }
-  }
+    void getTauriWindow().then((window) => window.startDragging());
+  }, []);
 
   return (
-    <div className="window-control-zone" data-window-mode={isHalfSize ? 'half' : 'fullscreen'}>
-      <div
-        className="window-control-bar"
-        role="toolbar"
-        aria-label="Window controls"
-        onMouseDown={startWindowDrag}
-      >
-        <div className="window-control-drag-hint" aria-hidden="true" />
-        <button
-          type="button"
-          className="window-control-btn"
-          aria-label="Minimize window"
-          title="Minimize"
-          onClick={minimizeWindow}
-        >
-          -
-        </button>
-        <button
-          type="button"
-          className="window-control-btn window-control-half"
-          aria-label={isHalfSize ? 'Return to fullscreen' : 'Set window to half size'}
-          title={isHalfSize ? 'Fullscreen' : 'Half size'}
-          onClick={toggleHalfSizeWindow}
-        />
-        <button
-          type="button"
-          className="window-control-btn window-control-close"
-          aria-label="Close window"
-          title="Close"
-          onClick={closeWindow}
-        >
-          x
-        </button>
-      </div>
+    <div className="window-controls" onMouseDown={drag}>
+      <button type="button" aria-label="최소화" title="최소화" onMouseDown={(event) => event.stopPropagation()} onClick={minimize}>
+        -
+      </button>
+      <button type="button" aria-label="창 모드 전환" title="창 모드 전환" onMouseDown={(event) => event.stopPropagation()} onClick={toggleWindowMode}>
+        □
+      </button>
+      <button type="button" aria-label="닫기" title="닫기" onMouseDown={(event) => event.stopPropagation()} onClick={close}>
+        x
+      </button>
     </div>
   );
 }

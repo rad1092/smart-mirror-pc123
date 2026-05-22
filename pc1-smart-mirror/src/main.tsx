@@ -1,29 +1,25 @@
-import ReactDOM from 'react-dom/client';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AppProvider } from './context/AppContext';
-import './styles/global.css';
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import { BrowserRouter } from "react-router-dom";
 
-import ProfileSelectPage from './pages/ProfileSelectPage';
-import BaselineCheckPage from './pages/BaselineCheckPage';
-import BaselineSetupPage from './pages/BaselineSetupPage';
-import ModePage from './pages/ModePage';
-import CameraPage from './pages/CameraPage';
-import ResultPage from './pages/ResultPage';
-import WindowControls from './components/WindowControls';
+import App from "./App";
+import { AppProvider } from "./state/AppContext";
+import "./styles/global.css";
+import "./styles/layout.css";
+import "./styles/screens.css";
 
-ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
-  <AppProvider>
+const root = document.getElementById("root");
+
+if (!root) {
+  throw new Error("Root element was not found");
+}
+
+createRoot(root).render(
+  <StrictMode>
     <BrowserRouter>
-      <WindowControls />
-      <Routes>
-        <Route path="/" element={<ProfileSelectPage />} />
-        <Route path="/baseline-check" element={<BaselineCheckPage />} />
-        <Route path="/baseline-setup" element={<BaselineSetupPage />} />
-        <Route path="/mode" element={<ModePage />} />
-        <Route path="/camera" element={<CameraPage />} />
-        <Route path="/result" element={<ResultPage />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      <AppProvider>
+        <App />
+      </AppProvider>
     </BrowserRouter>
-  </AppProvider>,
+  </StrictMode>,
 );
